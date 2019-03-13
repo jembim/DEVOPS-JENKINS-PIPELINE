@@ -1,0 +1,98 @@
+pipeline {
+    agent { label 'aws' }
+    stages {
+        stage('Code Quality') {
+            environment {
+                sonarscanner = tool name: 'ADOP SonarScanner', type: 'hudson.plugins.sonar.SonarRunnerInstallation'
+            }
+            steps {
+                cleanWs()
+                checkout changelog: false, 
+                    poll: false, 
+                    scm: [$class: 'GitSCM', 
+                    branches: [[name: '*/develop']], 
+                    doGenerateSubmoduleConfigurations: false, 
+                    extensions: [[$class: 'RelativeTargetDirectory', 
+                    relativeTargetDir: 'commerce-cloud']], 
+                    submoduleCfg: [], 
+                    userRemoteConfigs: [[credentialsId: 'adop-jenkins-master', 
+                    url: 'git@bitbucket.org:essiloronline/commerce-cloud.git']]]
+
+                checkout changelog: false, 
+                    poll: false, 
+                    scm: [$class: 'GitSCM', 
+                    branches: [[name: '*/master']], 
+                    doGenerateSubmoduleConfigurations: false, 
+                    extensions: [[$class: 'RelativeTargetDirectory', 
+                    relativeTargetDir: "${WORKSPACE}/commerce-cloud/commerce-cloud-gd"]], 
+                    submoduleCfg: [], 
+                    userRemoteConfigs: [[credentialsId: 'adop-jenkins-master', 
+                    url: 'git@bitbucket.org:essiloronline/commerce-cloud-gd.git']]]
+
+                checkout changelog: false, 
+                    poll: false, 
+                    scm: [$class: 'GitSCM', 
+                    branches: [[name: '*/master']], 
+                    doGenerateSubmoduleConfigurations: false, 
+                    extensions: [[$class: 'RelativeTargetDirectory', 
+                    relativeTargetDir: "${WORKSPACE}/commerce-cloud/commerce-cloud-vd"]], 
+                    submoduleCfg: [], 
+                    userRemoteConfigs: [[credentialsId: 'adop-jenkins-master', 
+                    url: 'git@bitbucket.org:essiloronline/commerce-cloud-vd.git']]]
+
+                checkout changelog: false, 
+                    poll: false, 
+                    scm: [$class: 'GitSCM', 
+                    branches: [[name: '*/master']], 
+                    doGenerateSubmoduleConfigurations: false, 
+                    extensions: [[$class: 'RelativeTargetDirectory', 
+                    relativeTargetDir: "${WORKSPACE}/commerce-cloud/storefront-reference-architecture"]], 
+                    submoduleCfg: [], 
+                    userRemoteConfigs: [[credentialsId: 'adop-jenkins-master', 
+                    url: 'git@github.com:SalesforceCommerceCloud/storefront-reference-architecture.git']]]
+
+                sh """
+                #!/bin/bash
+                rm -rf ${WORKSPACE}/*@tmp
+                rm -rf ${WORKSPACE}/commerce-cloud/*@tmp
+                """
+                withSonarQubeEnv ('ADOP Sonar') {
+                    sh '''
+                    #!/bin/bash
+                    ${sonarscanner}/bin/sonar-scanner \
+                        -Dsonar.projectKey=essilor \
+                        -Dsonar.projectName=essilor-devops-${BUILD_ID} \
+                        -Dsonar.sourceEncoding=UTF-8 \
+                        -Dsonar.sources=.
+                '''
+                }
+                cleanWs()
+            }
+        }
+        stage('Build') {
+            steps {
+                sshagent(['adop-jenkins-master']) {
+                    checkout changelog: false,
+                        poll: false,
+                        scm: [$class: 'GitSCM',
+                        branches: [[name: '*/master']],
+                        doGenerateSubmoduleConfigurations: false,
+                        extensions: [],
+                        submoduleCfg: [],
+                        userRemoteConfigs: [[credentialsId: 'adop-jenkins-master',
+                        url: 'git@bitbucket.org:jgbalagtas/build-suite.git']]]
+                sh '''#!/bin/bash +x
+                ## => SET BUILD VARIABLES <= ##
+                sed -i "s|REVISION|${BUILD_ID}|" ${WORKSPACE}/build/commerce-cloud.json
+                sed -i "s|USERNAME|${USERNAME}|" ${WORKSPACE}/build/commerce-cloud.json
+                sed -i "s|PASSWORD|${PASSWORD}|" ${WORKSPACE}/build/commerce-cloud.json
+                ## => Perform Build <= ##
+                npm install
+                grunt prepareForUpload --project=commerce-cloud
+                '''                
+                }
+            }
+        }
+    }
+}    
+
